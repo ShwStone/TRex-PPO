@@ -1,0 +1,7 @@
+__pycache__
+.DS_Store
+score.json
+models
+record
+*.log
+.ipy*
