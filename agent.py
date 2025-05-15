@@ -27,8 +27,8 @@ class DinoPPO:
             np.expand_dims(state, 0), 
             dtype=torch.float
         ).to(self.device)
-        probs = self.actor(state)
-        action_dist = torch.distributions.Categorical(probs)
+        logits = self.actor(state)
+        action_dist = torch.distributions.Categorical(logits=logits)
         action = action_dist.sample()
         return action.item()
 
@@ -71,7 +71,7 @@ class DinoPPO:
         deltas = torch.cat(deltas).cpu()
 
         advantages = utils.compute_advantage(self.gamma, self.lmbda, deltas).to(self.device)
-        old_log_probs = torch.log(self.actor(states).gather(1, actions)).detach()
+        old_log_probs = F.log_softmax(self.actor(states), dim=-1).gather(1, actions).detach()
 
         indice = torch.randperm(batch)
         actions = actions[indice]
@@ -88,7 +88,7 @@ class DinoPPO:
                 advantage = advantages[i:i+32]
                 target = targets[i:i+32]
 
-                log_prob = torch.log(self.actor(state).gather(1, action))
+                log_prob = F.log_softmax(self.actor(state), dim=-1).gather(1, action)
                 ratio = torch.exp(log_prob - old_log_prob)
                 
                 surr1 = ratio * advantage

@@ -37,8 +37,8 @@ class DinoActor(nn.Module):
         x = F.relu(self.bn3(self.conv3(x))) 
         x = x.view(x.size(0), -1)
         x = F.relu(self.fc1(x))
-        probs = F.softmax(self.fc2(x), dim=-1)
-        return probs
+        logits = self.fc2(x)
+        return logits
     
     def save(self, filepath):
         torch.save(self.state_dict(), filepath)
