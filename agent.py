@@ -55,23 +55,28 @@ class DinoPPO:
 
         batch = states.size()[0]
 
-        deltas, targets = [], []
-        for i in range(0, batch, 32): 
-            reward = rewards[i:i+32]
-            next_state = next_states[i:i+32]
-            done = dones[i:i+32]
-            state = states[i:i+32]
+        deltas, targets, old_log_probs = [], [], []
+        with torch.no_grad():
+            for i in range(0, batch, 32): 
+                reward = rewards[i:i+32]
+                next_state = next_states[i:i+32]
+                done = dones[i:i+32]
+                state = states[i:i+32]
+                action = actions[i:i+32]
 
-            target = reward + self.gamma * self.critic(next_state) * (1 - done)
-            delta = target - self.critic(state)
-            deltas.append(delta)
-            targets.append(target)
+                target = reward + self.gamma * self.critic(next_state) * (1 - done)
+                delta = target - self.critic(state)
+                old_log_prob = F.log_softmax(self.actor(state), dim=-1).gather(1, action)
+
+                deltas.append(delta)
+                targets.append(target)
+                old_log_probs.append(old_log_prob)
 
         targets = torch.cat(targets).detach()
         deltas = torch.cat(deltas).cpu()
+        old_log_probs = torch.cat(old_log_probs).detach()
 
         advantages = utils.compute_advantage(self.gamma, self.lmbda, deltas).to(self.device)
-        old_log_probs = F.log_softmax(self.actor(states), dim=-1).gather(1, actions).detach()
 
         indice = torch.randperm(batch)
         actions = actions[indice]
@@ -79,6 +84,9 @@ class DinoPPO:
         old_log_probs = old_log_probs[indice]
         advantages = advantages[indice]
         targets = targets[indice]
+
+        ratios = 0
+        clip_range = self.eps / ((batch / 32) ** .5)
 
         for _ in range(self.epochs):
             for i in range(0, batch, 32):
@@ -92,10 +100,12 @@ class DinoPPO:
                 ratio = torch.exp(log_prob - old_log_prob)
                 
                 surr1 = ratio * advantage
-                surr2 = torch.clamp(ratio, 1 - self.eps, 1 + self.eps) * advantage  # 截断
+                surr2 = torch.clamp(ratio, 1 - clip_range, 1 + clip_range) * advantage  # 截断
                 
                 actor_loss = torch.mean(-torch.min(surr1, surr2))  # PPO损失函数
                 critic_loss = torch.mean(F.mse_loss(self.critic(state), target))
+
+                ratios += torch.mean(ratio).item()
                 
                 self.actor_optimizer.zero_grad()
                 self.critic_optimizer.zero_grad()
@@ -105,6 +115,9 @@ class DinoPPO:
                 
                 self.actor_optimizer.step()
                 self.critic_optimizer.step()
+        
+        iters = ((batch - 1) // 32 + 1) * self.epochs
+        return ratios / iters
     
     def save(self, path) :
         actor_path = os.path.join(path, 'actor.pth')

@@ -3,7 +3,7 @@ import os
 import torch
 import numpy as np
 
-def train_ppo(env, agent, num_episodes, record_prefix, models_prefix, resume):
+def train_ppo(env, agent, num_episodes, record_prefix, models_prefix, resume, id):
     return_list = []
     if resume:
         agent.load(models_prefix)
@@ -12,7 +12,7 @@ def train_ppo(env, agent, num_episodes, record_prefix, models_prefix, resume):
             episode_return = 0
             transition_dict = {'states': [], 'actions': [], 'next_states': [], 'rewards': [], 'dones': []}
             record = True
-            record_path = os.path.join(record_prefix, f'{i_episode}.gif')
+            record_path = os.path.join(record_prefix, f'{id}-{i_episode}.gif')
             state = env.begin()
             done = False
             while not done:
@@ -27,9 +27,9 @@ def train_ppo(env, agent, num_episodes, record_prefix, models_prefix, resume):
                 
                 state = next_state
                 episode_return += reward
-            return_list.append(episode_return)
-            agent.update(transition_dict)
-            pbar.set_postfix({'episode': f'{i_episode}', 'return': f'{episode_return}' })
+            ratio = agent.update(transition_dict)
+            return_list.append((episode_return, ratio))
+            pbar.set_postfix({'episode': f'{i_episode}', 'reward': f'{episode_return}', 'ratio': f'{ratio}'})
             pbar.update(1)
             if record:
                 agent.save(models_prefix)

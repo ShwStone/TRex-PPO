@@ -15,7 +15,8 @@ pip install -r requirements.txt
 ## 训练
 
 ```bash
-python train.py
+python train.py False
+## 使用 python train.py True 来从保存点恢复训练
 ```
 
 模型文件输出在 `models/` 目录下。
