@@ -38,7 +38,8 @@ class DinoPPO:
             dtype=torch.float
         ).to(self.device)
         actions = torch.tensor(
-            np.array(transition_dict['actions'])
+            np.array(transition_dict['actions']),
+            dtype=torch.int64
         ).view(-1, 1).to(self.device)
         rewards = torch.tensor(
             np.array(transition_dict['rewards']), 
