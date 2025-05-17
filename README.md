@@ -15,8 +15,10 @@ pip install -r requirements.txt
 ## 训练
 
 ```bash
-python train.py False
-## 使用 python train.py True 来从保存点恢复训练
+python train.py 0 False
+## python train.py <id> <recover>
+## id: 整数，用来标记 record 中的输出
+## recover: Bool, 是否从保存的模型中恢复
 ```
 
 模型文件输出在 `models/` 目录下。

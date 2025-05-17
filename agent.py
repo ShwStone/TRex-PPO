@@ -8,14 +8,27 @@ import numpy as np
 
 class DinoPPO:
     ''' PPO算法,采用截断方式 '''
-    def __init__(self, state_dim, hidden_dim, action_dim, actor_lr, critic_lr,
-                 lmbda, epochs, eps, gamma, device):
-        self.actor = DinoActor(state_dim, hidden_dim, action_dim).to(device)
-        self.critic = DinoCritic(state_dim, hidden_dim).to(device)
+    def __init__(
+            self, 
+            input_shape: tuple, 
+            hidden_dim: int, 
+            action_dim: int, 
+            actor_lr: float, 
+            critic_lr: float, 
+            mini_batch: int, 
+            lmbda: float, 
+            epochs: int, 
+            eps: float, 
+            gamma: float, 
+            device: torch.device
+            ):
+        self.actor = DinoActor(input_shape, hidden_dim, action_dim).to(device)
+        self.critic = DinoCritic(input_shape, hidden_dim).to(device)
         self.actor_optimizer = optim.Adam(self.actor.parameters(),
                                                 lr=actor_lr)
         self.critic_optimizer = optim.Adam(self.critic.parameters(),
                                                  lr=critic_lr)
+        self.mini_batch = mini_batch
         self.gamma = gamma
         self.lmbda = lmbda
         self.epochs = epochs  # 一条序列的数据用来训练轮数
@@ -57,12 +70,12 @@ class DinoPPO:
 
         deltas, targets, old_log_probs = [], [], []
         with torch.no_grad():
-            for i in range(0, batch, 32): 
-                reward = rewards[i:i+32]
-                next_state = next_states[i:i+32]
-                done = dones[i:i+32]
-                state = states[i:i+32]
-                action = actions[i:i+32]
+            for i in range(0, batch, self.mini_batch): 
+                reward = rewards[i:i+self.mini_batch]
+                next_state = next_states[i:i+self.mini_batch]
+                done = dones[i:i+self.mini_batch]
+                state = states[i:i+self.mini_batch]
+                action = actions[i:i+self.mini_batch]
 
                 target = reward + self.gamma * self.critic(next_state) * (1 - done)
                 delta = target - self.critic(state)
@@ -77,6 +90,7 @@ class DinoPPO:
         old_log_probs = torch.cat(old_log_probs).detach()
 
         advantages = utils.compute_advantage(self.gamma, self.lmbda, deltas).to(self.device)
+        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
         indice = torch.randperm(batch)
         actions = actions[indice]
@@ -86,15 +100,15 @@ class DinoPPO:
         targets = targets[indice]
 
         ratios = 0
-        clip_range = self.eps / ((batch / 32) ** .5)
+        clip_range = self.eps * ((256 / batch) ** .5)
 
         for _ in range(self.epochs):
-            for i in range(0, batch, 32):
-                action = actions[i:i+32]
-                state = states[i:i+32]
-                old_log_prob = old_log_probs[i:i+32]
-                advantage = advantages[i:i+32]
-                target = targets[i:i+32]
+            for i in range(0, batch, self.mini_batch):
+                action = actions[i:i+self.mini_batch]
+                state = states[i:i+self.mini_batch]
+                old_log_prob = old_log_probs[i:i+self.mini_batch]
+                advantage = advantages[i:i+self.mini_batch]
+                target = targets[i:i+self.mini_batch]
 
                 log_prob = F.log_softmax(self.actor(state), dim=-1).gather(1, action)
                 ratio = torch.exp(log_prob - old_log_prob)
@@ -113,10 +127,13 @@ class DinoPPO:
                 actor_loss.backward()
                 critic_loss.backward()
                 
+                torch.nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=0.5)
+                torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=0.5)
+                
                 self.actor_optimizer.step()
                 self.critic_optimizer.step()
         
-        iters = ((batch - 1) // 32 + 1) * self.epochs
+        iters = ((batch - 1) // self.mini_batch + 1) * self.epochs
         return ratios / iters
     
     def save(self, path) :
